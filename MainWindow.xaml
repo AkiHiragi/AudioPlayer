@@ -1,0 +1,45 @@
+<Window x:Class="AudioPlayer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AudioPlayer"
+        mc:Ignorable="d"
+        Title="Аудио Плеер" Height="450" Width="800">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Меню -->
+        <Menu Grid.Row="0">
+            <MenuItem Header="Файл">
+                <MenuItem Header="Открыть" Click="OpenFile_Click"/>
+                <Separator/>
+                <MenuItem Header="Выход" Click="Exit_Click"/>
+            </MenuItem>
+        </Menu>
+        
+        <!-- Визуализация аудио -->
+        <Canvas x:Name="visualizationCanvas" Grid.Row="1" Background="Black"/>
+        
+        <!-- Информация о треке -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10">
+            <TextBlock x:Name="currentTrackText" Text="Нет выбранного трека" Margin="0,0,10,0"/>
+            <TextBlock x:Name="currentTimeText" Text="00:00 / 00:00"/>
+        </StackPanel>
+        
+        <!-- Элементы управления -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+            <Button x:Name="playButton" Content="▶" Width="50" Height="30" Margin="5" Click="Play_Click"/>
+            <Button x:Name="pauseButton" Content="⏸" Width="50" Height="30" Margin="5" Click="Pause_Click"/>
+            <Button x:Name="stopButton" Content="⏹" Width="50" Height="30" Margin="5" Click="Stop_Click"/>
+            <Slider x:Name="volumeSlider" Width="100" Minimum="0" Maximum="1" Value="0.5" 
+                    VerticalAlignment="Center" Margin="10,0" ValueChanged="VolumeSlider_ValueChanged"/>
+            <TextBlock Text="Громкость" VerticalAlignment="Center"/>
+        </StackPanel>
+    </Grid>
+</Window>
