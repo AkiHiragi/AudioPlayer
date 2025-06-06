@@ -4,9 +4,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AudioPlayer" 
-        xmlns:converters="clr-namespace:AudioPlayer.Converters"
         mc:Ignorable="d"
-        Title="Audio Player" Height="600" Width="900"
+        Title="Audio Player" Height="650" Width="900"
         Background="#FF1E1E1E"
         KeyDown="MainWindow_KeyDown"
         Focusable="True"
@@ -15,10 +14,8 @@
         DragEnter="MainWindow_DragEnter"
         DragOver="MainWindow_DragOver"
         DragLeave="MainWindow_DragLeave">
-    
-    <Window.Resources>
-        <converters:HalfConverter x:Key="HalfConverter"/>
 
+    <Window.Resources>
         <Style x:Key="ModeButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="#FF808080"/>
@@ -59,10 +56,27 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        
+        <!-- Стиль для меню -->
+        <Style x:Key="MenuButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FFCCCCCC"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FF404040"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid Margin="10">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="150"/>
             <RowDefinition Height="Auto"/>
@@ -70,11 +84,45 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Визуализация -->
-        <Canvas x:Name="VisualizationCanvas" Grid.Row="0" Background="#FF2A2A2A" Margin="0,0,0,10"/>
+        <!-- Меню плейлистов -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-        <!-- Плейлист -->
-        <ListBox x:Name="PlaylistBox" Grid.Row="1" Margin="0,0,0,10"
+            <!-- Название текущего плейлиста -->
+            <TextBlock x:Name="PlaylistNameText" Grid.Column="0" 
+                       Text="Новый плейлист" 
+                       Foreground="#FF00A0FF" FontSize="14" FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+
+            <!-- Кнопки управления плейлистами -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="SavePlaylistButton" Content="💾 Сохранить" 
+                        Style="{StaticResource MenuButtonStyle}"
+                        Click="SavePlaylistButton_Click" 
+                        ToolTip="Сохранить плейлист"/>
+                <Button x:Name="LoadPlaylistButton" Content="📂 Загрузить" 
+                        Style="{StaticResource MenuButtonStyle}"
+                        Click="LoadPlaylistButton_Click" 
+                        ToolTip="Загрузить плейлист"/>
+                <Button x:Name="NewPlaylistButton" Content="📄 Новый" 
+                        Style="{StaticResource MenuButtonStyle}"
+                        Click="NewPlaylistButton_Click" 
+                        ToolTip="Создать новый плейлист"/>
+                <Button x:Name="ClearPlaylistButton" Content="🗑️ Очистить" 
+                        Style="{StaticResource MenuButtonStyle}"
+                        Click="ClearPlaylistButton_Click" 
+                        ToolTip="Очистить плейлист"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Визуализация -->
+        <Canvas x:Name="VisualizationCanvas" Grid.Row="1" Background="#FF2A2A2A" Margin="0,0,0,10"/>
+
+        <!-- Плейлист с поддержкой Drag & Drop -->
+        <ListBox x:Name="PlaylistBox" Grid.Row="2" Margin="0,0,0,10"
                  Background="#FF2A2A2A" Foreground="White" BorderBrush="#FF404040"
                  SelectionChanged="PlaylistBox_SelectionChanged"
                  AllowDrop="True"
@@ -103,7 +151,7 @@
         </ListBox>
 
         <!-- Прогресс бар -->
-        <Slider x:Name="ProgressSlider" Grid.Row="2" Height="20" 
+        <Slider x:Name="ProgressSlider" Grid.Row="3" Height="20" 
                 Margin="0,0,0,10"
                 Minimum="0" Maximum="100" Value="0"
                 ValueChanged="ProgressSlider_ValueChanged"
@@ -124,7 +172,7 @@
         </Slider>
 
         <!-- Время -->
-        <Grid Grid.Row="3" Margin="0,0,0,15">
+        <Grid Grid.Row="4" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -133,12 +181,12 @@
 
             <TextBlock x:Name="CurrentTime" Grid.Column="0" Text="00:00" 
                        Foreground="White" VerticalAlignment="Center" FontSize="12"/>
-            <TextBlock x:Name="TotalTime" Grid.Column="2" Text="00:00"
+            <TextBlock x:Name="TotalTime" Grid.Column="2" Text="00:00" 
                        Foreground="White" VerticalAlignment="Center" FontSize="12"/>
         </Grid>
 
         <!-- Панель управления (центрированная) -->
-        <Grid Grid.Row="4" Height="60">
+        <Grid Grid.Row="5" Height="60">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -193,13 +241,13 @@
                         FontSize="14" Margin="10,0,0,0" Click="OpenFileButton_Click"/>
             </StackPanel>
         </Grid>
-        
-        <!-- Drag & Drop Overlay-->
-        <Border x:Name="DragOverlay" Grid.RowSpan="5"
+
+        <!-- Drag & Drop Overlay -->
+        <Border x:Name="DragOverlay" Grid.RowSpan="6" 
                 Style="{StaticResource DragOverlayStyle}"
                 Visibility="Collapsed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="📁" FontSize="48" Foreground="White"
+                <TextBlock Text="📁" FontSize="48" Foreground="White" 
                            HorizontalAlignment="Center" Margin="0,0,0,10"/>
                 <TextBlock Text="Перетащите аудиофайлы сюда" 
                            FontSize="20" Foreground="White" 
