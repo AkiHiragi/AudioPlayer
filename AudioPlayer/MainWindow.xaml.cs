@@ -515,5 +515,171 @@ namespace AudioPlayer {
 
             base.OnClosed(e);
         }
+
+        #region Drag & Drop Support
+
+        private readonly string[] supportedFormats = [".mp3", ".wav", ".wma", ".m4a", ".aac", ".flac"];
+
+        private void MainWindow_DragEnter(object sender, DragEventArgs e) {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (HasAudioFiles(files)) {
+                    e.Effects = DragDropEffects.Copy;
+                    ShowDragOverlay();
+                }
+                else {
+                    e.Effects = DragDropEffects.None;
+                }
+            }
+            else {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private void MainWindow_DragOver(object sender, DragEventArgs e) {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
+            }
+            else {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private void MainWindow_DragLeave(object sender, DragEventArgs e) {
+            HideDragOverlay();
+        }
+
+        private void MainWindow_Drop(object sender, DragEventArgs e) {
+            HideDragOverlay();
+
+            if(e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                AddAudioFiles(files);
+            }
+        }
+
+        private void PlaylistBox_DragEnter(object sender, DragEventArgs e) {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
+
+                if (HasAudioFiles(files)) {
+                    PlaylistBox.Background = new SolidColorBrush(Color.FromArgb(0x44, 0x00, 0xA0, 0xFF));
+                }
+            }
+            else {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private void PlaylistBox_DragOver(object sender, DragEventArgs e) {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
+            }
+            else {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private void PlaylistBox_DragLeave(object sender, DragEventArgs e) {
+            PlaylistBox.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+        }
+
+        private void PlaylistBox_Drop(object sender, DragEventArgs e) {
+            PlaylistBox.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                AddAudioFiles(files);
+            }
+        }
+                
+        private bool HasAudioFiles(string[] files) {
+            return files.Any(file => {
+                string extension = System.IO.Path.GetExtension(file).ToLower();
+                return supportedFormats.Contains(extension);
+            });
+        }
+
+        private void AddAudioFiles(string[] files) {
+            int addedCount = 0;
+
+            foreach (string file in files) {
+                if (File.Exists(file)) {
+                    string extension = System.IO.Path.GetExtension(file).ToLower();
+                    if (supportedFormats.Contains(extension)) {
+                        if (!playlist.Contains(file)) {
+                            playlist.Add(file);
+                            PlaylistBox.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+                            addedCount++;
+                        }
+                    }
+                }
+                else if (Directory.Exists(file)) {
+                    AddAudioFilesFromDirectory(file, ref addedCount);
+                }
+            }
+
+            if (addedCount > 0) {
+                if (currentTrackIndex == -1 && playlist.Count > 0) {
+                    currentTrackIndex = 0;
+                }
+
+                ShowNotification($"Добавлено треков: {addedCount}");
+
+                if (isShuffleEnabled) {
+                    GenerateShuffleOrder();
+                }
+            }
+        }
+
+        private void AddAudioFilesFromDirectory(string directoryPath, ref int addedCount) {
+            try {
+                foreach (string extension in supportedFormats) {
+                    string[] files = Directory.GetFiles(directoryPath, $"*{extension}", 
+                        SearchOption.AllDirectories);
+
+                    foreach (string file in files) {
+                        if (!playlist.Contains(file)) {
+                            playlist.Add(file);
+                            PlaylistBox.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+                            addedCount++;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) {
+                MessageBox.Show($"Ошибка при добавлении файлов из папки: {ex.Message}",
+                       "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void ShowDragOverlay() {
+            DragOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void HideDragOverlay() {
+            DragOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void ShowNotification(string message) {
+            // Простое уведомление в заголовке окна
+            string originalTitle = Title;
+            Title = $"✅ {message}";
+
+            // Возвращаем оригинальный заголовок через 2 секунды
+            var notificationTimer = new DispatcherTimer();
+            notificationTimer.Interval = TimeSpan.FromSeconds(2);
+            notificationTimer.Tick += (s, e) =>
+            {
+                Title = originalTitle;
+                notificationTimer.Stop();
+            };
+            notificationTimer.Start();
+        }
+
+        #endregion
     }
 }
