@@ -1,56 +1,39 @@
-using Microsoft.Win32;
-using System.IO;
 using System.Windows;
+using System.IO;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Threading;
+using AudioPlayer.Models;
+using AudioPlayer.Services;
+using Microsoft.Win32;
 
-namespace AudioPlayer {
-    public partial class MainWindow : Window {
-        #region Fields
+namespace AudioPlayer
+{
+    public partial class MainWindow : Window
+    {
+        // Сервисы
+        private AudioService         audioService;
+        private PlayListService      playlistService;
+        private VisualizationService visualizationService;
+        private KeyboardService      keyboardService;
 
-        private MediaPlayer mediaPlayer;
-        private DispatcherTimer timer;
-        private DispatcherTimer visualizationTimer;
-        private List<string> playlist;
-        private int currentTrackIndex;
-        private bool isPlaying;
-        private Random random;
-        private bool isUserDragging = false;
-
-        private DateTime lastLeftKeyPress = DateTime.MinValue;
-        private DateTime lastRightKeyPress = DateTime.MinValue;
-        private readonly TimeSpan doubleClickInterval = TimeSpan.FromMilliseconds(400);
-
-        public enum PlaybackMode {
-            Normal,
-            RepeatOne,
-            RepeatAll
-        }
-
-        private PlaybackMode currentPlaybackMode = PlaybackMode.Normal;
-        private bool isShuffleEnabled = false;
-        private List<int> shuffleOrder;
-        private int shuffleIndex = 0;
-
-        // Playlist Management Fields
+        // UI состояние
+        private bool   isUserDragging      = false;
         private string currentPlaylistName = "Новый плейлист";
-        private bool isPlaylistModified = false;
-        private DateTime lastAutoSave = DateTime.Now;
-        private readonly TimeSpan autoSaveInterval = TimeSpan.FromMinutes(2);
+        private bool   isPlaylistModified  = false;
 
         // Drag & Drop Support
-        private readonly string[] supportedFormats = { ".mp3", ".wav", ".wma", ".m4a", ".aac", ".flac" };
+        private readonly string[] supportedFormats = [".mp3", ".wav", ".wma", ".m4a", ".aac", ".flac"];
 
-        #endregion
+        // Auto-save fields
+        private          DateTime lastAutosave     = DateTime.Now;
+        private readonly TimeSpan autoSaveInterval = TimeSpan.FromMinutes(2);
 
-        #region Constructor and Initialization
-
-        public MainWindow() {
+        public MainWindow()
+        {
             InitializeComponent();
-            InitializePlayer();
+            InitializeServices();
+            SetupEventHandlers();
 
             LoadAutoSavedPlaylist();
             StartAutoSaveTimer();
@@ -58,558 +41,665 @@ namespace AudioPlayer {
             this.Loaded += (s, e) => this.Focus();
         }
 
-        private void InitializePlayer() {
-            mediaPlayer = new MediaPlayer();
-            mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
-            mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
-
-            timer = new DispatcherTimer();
-            timer.Interval = TimeSpan.FromSeconds(1);
-            timer.Tick += Timer_Tick;
-
-            visualizationTimer = new DispatcherTimer();
-            visualizationTimer.Interval = TimeSpan.FromMilliseconds(50);
-            visualizationTimer.Tick += VisualizationTimer_Tick;
-
-            playlist = new List<string>();
-            shuffleOrder = new List<int>();
-            random = new Random();
-            currentTrackIndex = -1;
+        private void InitializeServices()
+        {
+            audioService         = new AudioService();
+            playlistService      = new PlayListService();
+            visualizationService = new VisualizationService(VisualizationCanvas);
+            keyboardService      = new KeyboardService();
 
             CurrentTime.Text = "00:00";
-            TotalTime.Text = "00:00";
+            TotalTime.Text   = "00:00";
+        }
+
+        private void SetupEventHandlers()
+        {
+            // AudioService Events
+            audioService.PositionChanged      += OnPositionChanged;
+            audioService.DurationChanged      += OnDurationChanged;
+            audioService.PlaybackStateChanged += OnPlaybackStateChanged;
+            audioService.TrackEnded           += OnTrackEnded;
+            audioService.TrackOpened          += OnTrackOpened;
+
+            //PlaylistService Events
+            playlistService.CurrentTrackChanged += OnCurrentTrackChanged;
+            playlistService.PlaylistChanged     += OnPlaylistChanged;
+            playlistService.TrackIndexChanged   += OnTrackIndexChanged;
+
+            // KeyboardService Events
+            keyboardService.PlayPauseRequested        += (s, e) => PlayPauseButton_Click(s, e);
+            keyboardService.StopRequested             += (s, e) => StopButton_Click(null, null);
+            keyboardService.NextTrackRequested        += (s, e) => NextButton_Click(null, null);
+            keyboardService.PreviousTrackRequested    += (s, e) => PreviousButton_Click(null, null);
+            keyboardService.SeekRequested             += OnSeekRequested;
+            keyboardService.VolumeChangeRequested     += OnVolumeChangeRequested;
+            keyboardService.MuteToggleRequested       += OnMuteToggleRequested;
+            keyboardService.RepeatModeRequested       += (s, e) => RepeatButton_Click(null, null);
+            keyboardService.ShuffleToggleRequested    += (s, e) => ShuffleButton_Click(null, null);
+            keyboardService.OpenFileRequested         += (s, e) => OpenFileButton_Click(null, null);
+            keyboardService.FullscreenToggleRequested += OnFullscreenToggleRequested;
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            AutoSavePlaylist();
+
+            audioService?.Dispose();
+            visualizationService?.Dispose();
+
+            base.OnClosed(e);
+        }
+
+        #region Event Handlers
+
+        // AudioService Handlers
+        private void OnPositionChanged(object? sender, TimeSpan position)
+        {
+            if (!isUserDragging)
+            {
+                ProgressSlider.Value = position.TotalSeconds;
+                CurrentTime.Text     = FormatTime(position);
+            }
+        }
+
+        private void OnDurationChanged(object? sender, TimeSpan duration)
+        {
+            ProgressSlider.Maximum = duration.TotalSeconds;
+            TotalTime.Text         = FormatTime(duration);
+        }
+
+        private void OnPlaybackStateChanged(object? sender, bool isPlaying)
+        {
+            PlayPauseButton.Content        = isPlaying ? "⏸" : "▶";
+            visualizationService.IsEnabled = isPlaying;
+        }
+
+        private void OnTrackEnded(object? sender, EventArgs e)
+        {
+            var nextTrack = playlistService.GetNextTrack();
+            if (nextTrack != null)
+            {
+                audioService.LoadTrack(nextTrack);
+                audioService.Play();
+            }
+            else if (playlistService.PlaybackMode == PlaybackMode.RepeatOne)
+            {
+                audioService.SetPosition(TimeSpan.Zero);
+                audioService.Play();
+            }
+            else
+            {
+                audioService.Stop();
+            }
+        }
+
+        private void OnTrackOpened(object? sender, EventArgs e)
+        {
+            // Трек загружен и готов к воспроизведению
+        }
+
+        // PlaylistService Handlers
+        private void OnCurrentTrackChanged(object? sender, string filePath)
+        {
+            Title = $"Audio Player - {Path.GetFileNameWithoutExtension(filePath)}";
+        }
+
+        private void OnPlaylistChanged(object? sender, EventArgs e)
+        {
+            UpdatePlaylistUI();
+            MarkPlaylistAsModified();
+        }
+
+        private void OnTrackIndexChanged(object? sender, int index)
+        {
+            if (PlaylistBox.SelectedIndex != index)
+                PlaylistBox.SelectedIndex = index;
+        }
+
+        // KeyboardService Handlers
+        private void OnSeekRequested(object? sender, int seconds)
+        {
+            var newPosition = audioService.Position.Add(TimeSpan.FromSeconds(seconds));
+            if (newPosition < TimeSpan.Zero) newPosition = TimeSpan.Zero;
+            if (newPosition > audioService.Duration) newPosition = audioService.Duration;
+
+            audioService.SetPosition(newPosition);
+        }
+
+        private void OnVolumeChangeRequested(object? sender, double change)
+        {
+            var newVolume = Math.Max(0, Math.Min(100, VolumeSlider.Value + change));
+            VolumeSlider.Value = newVolume;
+        }
+
+        private void OnMuteToggleRequested(object? sender, EventArgs e)
+        {
+            if (VolumeSlider.Value > 0)
+            {
+                VolumeSlider.Tag   = VolumeSlider.Value;
+                VolumeSlider.Value = 0;
+            }
+            else
+            {
+                VolumeSlider.Value = VolumeSlider.Tag != null ? (double)VolumeSlider.Tag : 50;
+            }
+        }
+
+        private void OnFullscreenToggleRequested(object? sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Normal)
+            {
+                WindowState = WindowState.Maximized;
+                WindowStyle = WindowStyle.None;
+            }
+            else
+            {
+                WindowState = WindowState.Normal;
+                WindowStyle = WindowStyle.SingleBorderWindow;
+            }
         }
 
         #endregion
 
-        #region Media Player Events
+        #region Helper Methods
 
-        // Добавьте эти методы в класс MainWindow:
-
-        private void PlayPauseButton_Click(object sender, RoutedEventArgs e) {
-            if (playlist.Count == 0)
-                return;
-
-            if (isPlaying) {
-                mediaPlayer.Pause();
-                isPlaying = false;
-                PlayPauseButton.Content = "▶";
-                timer.Stop();
-                visualizationTimer.Stop();
+        private void UpdatePlaylistUI()
+        {
+            PlaylistBox.Items.Clear();
+            foreach (var track in playlistService.Playlist)
+            {
+                PlaylistBox.Items.Add(Path.GetFileNameWithoutExtension(track));
             }
-            else {
-                if (currentTrackIndex == -1) {
-                    currentTrackIndex = 0;
-                    PlayCurrentTrack();
+        }
+
+        private void MarkPlaylistAsModified()
+        {
+            if (!isPlaylistModified)
+            {
+                isPlaylistModified = true;
+                UpdatePlaylistTitle();
+            }
+        }
+
+        private void UpdatePlaylistTitle()
+        {
+            var title = currentPlaylistName;
+            if (isPlaylistModified)
+                title += "*";
+            PlaylistNameText.Text = title;
+        }
+
+        private string FormatTime(TimeSpan time)
+        {
+            if (time.TotalHours >= 1)
+                return $"{(int)time.TotalHours:D1}:{time.Minutes:D2}:{time.Seconds:D2}";
+
+            return $"{time.Minutes:D2}:{time.Seconds:D2}";
+        }
+
+        #endregion
+
+        #region UI Button Handlers
+
+        private void PlayPauseButton_Click(object? sender, EventArgs eventArgs)
+        {
+            if (playlistService.Count == 0) return;
+
+            if (audioService.IsPlaying)
+            {
+                audioService.Pause();
+            }
+            else
+            {
+                if (playlistService.CurrentTrack != null)
+                {
+                    if (audioService.Position == TimeSpan.Zero)
+                    {
+                        audioService.LoadTrack(playlistService.CurrentTrack);
+                    }
+
+                    audioService.Play();
                 }
-                else {
-                    mediaPlayer.Play();
-                    isPlaying = true;
-                    PlayPauseButton.Content = "⏸";
-                    timer.Start();
-                    visualizationTimer.Start();
+                else if (playlistService.Count > 0)
+                {
+                    playlistService.SetCurrentTrack(0);
+                    audioService.LoadTrack(playlistService.CurrentTrack);
+                    audioService.Play();
                 }
             }
         }
 
-        private void StopButton_Click(object sender, RoutedEventArgs e) {
-            StopPlayback();
+        private void StopButton_Click(object sender, RoutedEventArgs e)
+        {
+            audioService.Stop();
+            Title = "Audio Player";
         }
 
-        private void NextButton_Click(object sender, RoutedEventArgs e) {
-            if (playlist.Count == 0)
-                return;
-
-            if (isShuffleEnabled) {
-                PlayNextShuffled();
-            }
-            else {
-                if (currentTrackIndex < playlist.Count - 1) {
-                    currentTrackIndex++;
-                    PlayCurrentTrack();
-                }
-                else if (currentPlaybackMode == PlaybackMode.RepeatAll) {
-                    currentTrackIndex = 0;
-                    PlayCurrentTrack();
+        private void NextButton_Click(object sender, RoutedEventArgs e)
+        {
+            var nextTrack = playlistService.GetNextTrack();
+            if (nextTrack != null)
+            {
+                audioService.LoadTrack(nextTrack);
+                if (audioService.IsPlaying)
+                {
+                    audioService.Play();
                 }
             }
         }
 
-        private void PreviousButton_Click(object sender, RoutedEventArgs e) {
-            if (playlist.Count == 0)
-                return;
-
-            if (isShuffleEnabled) {
-                if (shuffleOrder != null && shuffleIndex > 0) {
-                    shuffleIndex--;
-                    currentTrackIndex = shuffleOrder[shuffleIndex];
-                    PlayCurrentTrack();
-                }
-            }
-            else {
-                if (currentTrackIndex > 0) {
-                    currentTrackIndex--;
-                    PlayCurrentTrack();
-                }
-                else if (currentPlaybackMode == PlaybackMode.RepeatAll) {
-                    currentTrackIndex = playlist.Count - 1;
-                    PlayCurrentTrack();
+        private void PreviousButton_Click(object sender, RoutedEventArgs e)
+        {
+            var previousTrack = playlistService.GetPreviousTrack();
+            if (previousTrack != null)
+            {
+                audioService.LoadTrack(previousTrack);
+                if (audioService.IsPlaying)
+                {
+                    audioService.Play();
                 }
             }
         }
 
-        private void RepeatButton_Click(object sender, RoutedEventArgs e) {
-            switch (currentPlaybackMode) {
+        private void RepeatButton_Click(object sender, RoutedEventArgs e)
+        {
+            var          currentMode = playlistService.PlaybackMode;
+            PlaybackMode newMode;
+
+            switch (currentMode)
+            {
                 case PlaybackMode.Normal:
-                    currentPlaybackMode = PlaybackMode.RepeatOne;
+                    newMode              = PlaybackMode.RepeatOne;
                     RepeatButton.Content = "🔂";
-                    RepeatButton.Style = (Style)FindResource("ActiveModeButtonStyle");
+                    RepeatButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
                     RepeatButton.ToolTip = "Повтор трека";
                     break;
 
                 case PlaybackMode.RepeatOne:
-                    currentPlaybackMode = PlaybackMode.RepeatAll;
+                    newMode              = PlaybackMode.RepeatAll;
                     RepeatButton.Content = "🔁";
-                    RepeatButton.Style = (Style)FindResource("ActiveModeButtonStyle");
+                    RepeatButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
                     RepeatButton.ToolTip = "Повтор плейлиста";
                     break;
 
                 case PlaybackMode.RepeatAll:
-                    currentPlaybackMode = PlaybackMode.Normal;
+                    newMode              = PlaybackMode.Normal;
                     RepeatButton.Content = "🔁";
-                    RepeatButton.Style = (Style)FindResource("ModeButtonStyle");
+                    RepeatButton.Style   = (Style)FindResource("ModeButtonStyle");
                     RepeatButton.ToolTip = "Режим повтора";
                     break;
+
+                default:
+                    newMode = PlaybackMode.Normal;
+                    break;
             }
+
+            playlistService.SetPlaybackMode(newMode);
             MarkPlaylistAsModified();
         }
 
-        private void ShuffleButton_Click(object sender, RoutedEventArgs e) {
-            isShuffleEnabled = !isShuffleEnabled;
+        private void ShuffleButton_Click(object sender, RoutedEventArgs e)
+        {
+            var newShuffleState = !playlistService.IsShuffleEnabled;
+            playlistService.SetShuffle(newShuffleState);
 
-            if (isShuffleEnabled) {
-                ShuffleButton.Style = (Style)FindResource("ActiveModeButtonStyle");
+            if (newShuffleState)
+            {
+                ShuffleButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
                 ShuffleButton.ToolTip = "Случайное воспроизведение включено";
-                GenerateShuffleOrder();
             }
-            else {
-                ShuffleButton.Style = (Style)FindResource("ModeButtonStyle");
+            else
+            {
+                ShuffleButton.Style   = (Style)FindResource("ModeButtonStyle");
                 ShuffleButton.ToolTip = "Случайное воспроизведение";
-                shuffleOrder = null;
             }
+
             MarkPlaylistAsModified();
         }
 
-        private void OpenFileButton_Click(object sender, RoutedEventArgs e) {
-            OpenFileDialog openFileDialog = new OpenFileDialog();
-            openFileDialog.Filter = "Audio Files (*.mp3;*.wav;*.wma;*.m4a;*.aac;*.flac)|*.mp3;*.wav;*.wma;*.m4a;*.aac;*.flac|All Files (*.*)|*.*";
-            openFileDialog.Multiselect = true;
+        private void OpenFileButton_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter =
+                    "Audio Files (*.mp3;*.wav;*.wma;*.m4a;*.aac;*.flac)|*.mp3;*.wav;*.wma;*.m4a;*.aac;*.flac|All Files (*.*)|*.*",
+                Multiselect = true
+            };
 
-            if (openFileDialog.ShowDialog() == true) {
-                foreach (string fileName in openFileDialog.FileNames) {
-                    if (!playlist.Contains(fileName)) {
-                        playlist.Add(fileName);
-                        PlaylistBox.Items.Add(System.IO.Path.GetFileNameWithoutExtension(fileName));
+            if (openFileDialog.ShowDialog() == true)
+            {
+                playlistService.AddTracks(openFileDialog.FileNames);
+            }
+        }
+
+        private void SavePlaylistButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new SaveFileDialog
+                {
+                    Title      = "Сохранить плейлист",
+                    Filter     = "Плейлисты (*.json)|*.json",
+                    DefaultExt = "json",
+                    InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                                                    "AudioPlayer", "Playlists")
+                };
+
+                if (dialog.ShowDialog() == true)
+                {
+                    var playlistData = CreatePlaylistData();
+                    var fileName     = Path.GetFileNameWithoutExtension(dialog.FileName);
+                    playlistData.Name = fileName;
+
+                    PlaylistManager.SavePlaylist(playlistData, dialog.FileName);
+
+                    currentPlaylistName = fileName;
+                    isPlaylistModified  = false;
+                    UpdatePlaylistTitle();
+                    ShowNotification($"Плейлист '{fileName}' сохранен");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения: {ex.Message}", "Ошибка", MessageBoxButton.OK,
+                                MessageBoxImage.Error);
+            }
+        }
+
+        private void LoadPlaylistButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new OpenFileDialog
+                {
+                    Title  = "Загрузить плейлист",
+                    Filter = "Плейлисты (*.json)|*.json",
+                    InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                                                    "AudioPlayer", "Playlists")
+                };
+
+                if (dialog.ShowDialog() == true)
+                {
+                    var playlistData = PlaylistManager.LoadPlaylist(dialog.FileName);
+                    if (playlistData != null)
+                    {
+                        LoadPlaylistData(playlistData);
+                        currentPlaylistName = playlistData.Name ?? Path.GetFileNameWithoutExtension(dialog.FileName);
+                        isPlaylistModified  = false;
+                        UpdatePlaylistTitle();
+                        ShowNotification($"Плейлист '{currentPlaylistName}' загружен");
                     }
                 }
-                MarkPlaylistAsModified();
             }
-
-            if (currentTrackIndex == -1 && playlist.Count > 0) {
-                currentTrackIndex = 0;
-            }
-        }
-
-        private void Timer_Tick(object sender, EventArgs e) {
-            if (mediaPlayer.NaturalDuration.HasTimeSpan && !isUserDragging) {
-                var totalSeconds = mediaPlayer.NaturalDuration.TimeSpan.TotalSeconds;
-                var currentSeconds = mediaPlayer.Position.TotalSeconds;
-
-                ProgressSlider.Maximum = totalSeconds;
-                ProgressSlider.Value = currentSeconds;
-
-                CurrentTime.Text = FormatTime(mediaPlayer.Position);
-                TotalTime.Text = FormatTime(mediaPlayer.NaturalDuration.TimeSpan);
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка загрузки: {ex.Message}", "Ошибка", MessageBoxButton.OK,
+                                MessageBoxImage.Error);
             }
         }
 
-        private void MediaPlayer_MediaOpened(object sender, EventArgs e) {
-            if (mediaPlayer.NaturalDuration.HasTimeSpan) {
-                ProgressSlider.Maximum = mediaPlayer.NaturalDuration.TimeSpan.TotalSeconds;
-                TotalTime.Text = FormatTime(mediaPlayer.NaturalDuration.TimeSpan);
-                CurrentTime.Text = "00:00";
-            }
+        private void NewPlaylistButton_Click(object sender, RoutedEventArgs e)
+        {
+            playlistService.Clear();
+            audioService.Stop();
+            currentPlaylistName = "Новый плейлист";
+            isPlaylistModified  = false;
+            UpdatePlaylistTitle();
         }
 
-        private void MediaPlayer_MediaEnded(object sender, EventArgs e) {
-            switch (currentPlaybackMode) {
-                case PlaybackMode.RepeatOne:
-                    mediaPlayer.Position = TimeSpan.Zero;
-                    mediaPlayer.Play();
-                    break;
-
-                case PlaybackMode.Normal:
-                case PlaybackMode.RepeatAll:
-                    if (isShuffleEnabled) {
-                        PlayNextShuffled();
-                    }
-                    else {
-                        PlayNextNormal();
-                    }
-                    break;
+        private void ClearPlaylistButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (MessageBox.Show("Вы уверены, что хотите очистить плейлист?", "Подтвержение",
+                                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                playlistService.Clear();
+                audioService.Stop();
             }
         }
 
         #endregion
 
-        #region Playback Logic
+        #region UI Element Handlers
 
-        private void PlayNextNormal() {
-            if (currentTrackIndex < playlist.Count - 1) {
-                currentTrackIndex++;
-                PlayCurrentTrack();
-            }
-            else if (currentPlaybackMode == PlaybackMode.RepeatAll) {
-                currentTrackIndex = 0;
-                PlayCurrentTrack();
-            }
-            else {
-                StopPlayback();
-            }
-        }
-
-        private void PlayNextShuffled() {
-            if (shuffleOrder == null || shuffleOrder.Count == 0) {
-                GenerateShuffleOrder();
-            }
-            shuffleIndex++;
-            if (shuffleIndex >= shuffleOrder.Count) {
-                if (currentPlaybackMode == PlaybackMode.RepeatAll) {
-                    shuffleIndex = 0;
-                }
-                else {
-                    StopPlayback();
-                    return;
-                }
-            }
-
-            currentTrackIndex = shuffleOrder[shuffleIndex];
-            PlayCurrentTrack();
-        }
-
-        private void GenerateShuffleOrder() {
-            shuffleOrder = Enumerable.Range(0, playlist.Count).ToList();
-
-            for (int i = shuffleOrder.Count - 1; i > 0; i--) {
-                int j = random.Next(i + 1);
-                int temp = shuffleOrder[i];
-                shuffleOrder[i] = shuffleOrder[j];
-                shuffleOrder[j] = temp;
-            }
-
-            shuffleIndex = shuffleOrder.IndexOf(currentTrackIndex);
-        }
-
-        private void PlayCurrentTrack() {
-            if (currentTrackIndex >= 0 && currentTrackIndex < playlist.Count) {
-                try {
-                    mediaPlayer.Open(new Uri(playlist[currentTrackIndex]));
-                    mediaPlayer.Play();
-                    isPlaying = true;
-                    PlayPauseButton.Content = "⏸";
-
-                    timer.Start();
-                    visualizationTimer.Start();
-
-                    PlaylistBox.SelectedIndex = currentTrackIndex;
-
-                    Title = $"Audio Player - {System.IO.Path.GetFileNameWithoutExtension(playlist[currentTrackIndex])}";
-                }
-                catch (Exception ex) {
-                    MessageBox.Show($"Ошибка воспроизведения: {ex.Message}");
+        private void PlaylistBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (PlaylistBox.SelectedIndex >= 0)
+            {
+                playlistService.SetCurrentTrack(PlaylistBox.SelectedIndex);
+                if (playlistService.CurrentTrack != null)
+                {
+                    audioService.LoadTrack(playlistService.CurrentTrack);
+                    audioService.Play();
                 }
             }
         }
 
-        private void StopPlayback() {
-            mediaPlayer.Stop();
-            isPlaying = false;
-            PlayPauseButton.Content = "▶";
-            timer.Stop();
-            visualizationTimer.Stop();
-            ProgressSlider.Value = 0;
-            CurrentTime.Text = "00:00";
-            Title = "Audio Player";
+        private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            audioService?.SetVolume(VolumeSlider.Value);
         }
 
-        #endregion
-
-        #region UI Event Handlers
-
-        private void PlaylistBox_SelectionChanged(object sender, SelectionChangedEventArgs e) {
-            if (PlaylistBox.SelectedIndex >= 0 && PlaylistBox.SelectedIndex < playlist.Count) {
-                currentTrackIndex = PlaylistBox.SelectedIndex;
-                PlayCurrentTrack();
-            }
-
-            if (isShuffleEnabled && shuffleOrder != null) {
-                shuffleIndex = shuffleOrder.IndexOf(currentTrackIndex);
+        private void ProgressSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (isUserDragging)
+            {
+                audioService.SetPosition(TimeSpan.FromSeconds(ProgressSlider.Value));
             }
         }
 
-        private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
-            if (mediaPlayer != null) {
-                mediaPlayer.Volume = VolumeSlider.Value / 100.0;
-            }
-        }
-
-        private void ProgressSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
-            if (isUserDragging && mediaPlayer.NaturalDuration.HasTimeSpan) {
-                mediaPlayer.Position = TimeSpan.FromSeconds(ProgressSlider.Value);
-            }
-        }
-
-        private void ProgressSlider_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+        private void ProgressSlider_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
             isUserDragging = true;
         }
 
-        private void ProgressSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
+        private void ProgressSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
             isUserDragging = false;
-            if (mediaPlayer.NaturalDuration.HasTimeSpan) {
-                mediaPlayer.Position = TimeSpan.FromSeconds(ProgressSlider.Value);
+            audioService.SetPosition(TimeSpan.FromSeconds(ProgressSlider.Value));
+        }
+
+        private void MainWindow_KeyDown(object sender, KeyEventArgs e)
+        {
+            keyboardService.HandleKeyDown(e.Key);
+            e.Handled = true;
+        }
+
+        private PlaylistData CreatePlaylistData()
+        {
+            var playlistData = new PlaylistData
+            {
+                Name              = currentPlaylistName,
+                CurrentTrackIndex = playlistService.CurrentTrackIndex,
+                PlaybackMode      = GetCurrentPlaybackModeToString(),
+                IsShuffleEnabled  = playlistService.IsShuffleEnabled,
+                Volume            = VolumeSlider.Value
+            };
+
+            foreach (var filePath in playlistService.Playlist)
+            {
+                playlistData.Items.Add(new PlaylistItem(filePath));
+            }
+
+            return playlistData;
+        }
+
+        private void LoadPlaylistData(PlaylistData playlistData)
+        {
+            audioService.Stop();
+            playlistService.Clear();
+
+            var validTracks = playlistData.Items
+                                          .Where(item => File.Exists(item.FilePath))
+                                          .Select(item => item.FilePath)
+                                          .ToList();
+
+            if (validTracks.Count > 0)
+            {
+                playlistService.AddTracks(validTracks);
+
+                var trackIndex = Math.Min(playlistData.CurrentTrackIndex, validTracks.Count - 1);
+                if (trackIndex >= 0)
+                {
+                    playlistService.SetCurrentTrack(trackIndex);
+                }
+            }
+
+            VolumeSlider.Value = playlistData.Volume;
+
+            PlaybackMode mode = playlistData.PlaybackMode switch
+            {
+                "RepeatOne" => PlaybackMode.RepeatOne,
+                "RepeatAll" => PlaybackMode.RepeatAll,
+                _           => PlaybackMode.Normal
+            };
+            playlistService.SetPlaybackMode(mode);
+            playlistService.SetShuffle(playlistData.IsShuffleEnabled);
+
+            UpdateModeButtons();
+        }
+
+        private string GetCurrentPlaybackModeToString()
+        {
+            return playlistService.PlaybackMode switch
+            {
+                PlaybackMode.RepeatOne => "RepeatOne",
+                PlaybackMode.RepeatAll => "RepeatAll",
+                _                      => "Normal"
+            };
+        }
+
+        private void UpdateModeButtons()
+        {
+            if (playlistService.IsShuffleEnabled)
+            {
+                ShuffleButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
+                ShuffleButton.ToolTip = "Случайное воспроизведение включено";
+            }
+            else
+            {
+                ShuffleButton.Style   = (Style)FindResource("ModeButtonStyle");
+                ShuffleButton.ToolTip = "Случайное воспроизведение";
+            }
+
+            switch (playlistService.PlaybackMode)
+            {
+                case PlaybackMode.RepeatOne:
+                    RepeatButton.Content = "🔂";
+                    RepeatButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
+                    RepeatButton.ToolTip = "Повтор трека";
+                    break;
+
+                case PlaybackMode.RepeatAll:
+                    RepeatButton.Content = "🔁";
+                    RepeatButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
+                    RepeatButton.ToolTip = "Повтор плейлиста";
+                    break;
+
+                default:
+                    RepeatButton.Content = "🔁";
+                    RepeatButton.Style   = (Style)FindResource("ModeButtonStyle");
+                    RepeatButton.ToolTip = "Режим повтора";
+                    break;
             }
         }
 
-        private void VisualizationTimer_Tick(object sender, EventArgs e) {
-            VisualizationCanvas.Children.Clear();
+        private void ShowNotification(string message)
+        {
+            var originalText = Title;
+            Title = $"✅ {message}";
 
-            int barCount = 20;
-            double barWidth = VisualizationCanvas.ActualWidth / barCount;
-
-            for (int i = 0; i < barCount; i++) {
-                double height = random.NextDouble() * VisualizationCanvas.ActualHeight * 0.8;
-
-                Rectangle bar = new Rectangle {
-                    Width = barWidth - 2,
-                    Height = height,
-                    Fill = new SolidColorBrush(Color.FromRgb(
-                        (byte)(100 + random.Next(155)),
-                        (byte)(150 + random.Next(105)),
-                        (byte)(200 + random.Next(55))
-                    ))
-                };
-
-                Canvas.SetLeft(bar, i * barWidth);
-                Canvas.SetBottom(bar, 0);
-
-                VisualizationCanvas.Children.Add(bar);
-            }
+            var notificationTimer = new DispatcherTimer();
+            notificationTimer.Interval = TimeSpan.FromSeconds(2);
+            notificationTimer.Tick += (s, e) =>
+            {
+                Title = originalText;
+                notificationTimer.Stop();
+            };
+            notificationTimer.Start();
         }
 
         #endregion
 
-        #region Keyboard Handling
+        #region Drag & Drop Handlers
 
-        private void MainWindow_KeyDown(object sender, KeyEventArgs e) {
-            switch (e.Key) {
-                case Key.Space:
-                    PlayPauseButton_Click(null, null);
-                    e.Handled = true;
-                    break;
-
-                case Key.S:
-                    StopButton_Click(null, null);
-                    e.Handled = true;
-                    break;
-
-                case Key.M:
-                    if (VolumeSlider.Value > 0) {
-                        VolumeSlider.Tag = VolumeSlider.Value;
-                        VolumeSlider.Value = 0;
-                    }
-                    else {
-                        VolumeSlider.Value = VolumeSlider.Tag != null ? (double)VolumeSlider.Tag : 50;
-                    }
-                    e.Handled = true;
-                    break;
-
-                case Key.Up:
-                    VolumeSlider.Value = Math.Min(100, VolumeSlider.Value + 10);
-                    e.Handled = true;
-                    break;
-
-                case Key.Down:
-                    VolumeSlider.Value = Math.Max(0, VolumeSlider.Value - 10);
-                    e.Handled = true;
-                    break;
-
-                case Key.Left:
-                    HandleLeftKey();
-                    e.Handled = true;
-                    break;
-
-                case Key.Right:
-                    HandleRightKey();
-                    e.Handled = true;
-                    break;
-
-                case Key.O:
-                    if (Keyboard.Modifiers == ModifierKeys.Control) {
-                        OpenFileButton_Click(null, null);
-                        e.Handled = true;
-                    }
-                    break;
-
-                case Key.F:
-                    if (WindowState == WindowState.Normal) {
-                        WindowState = WindowState.Maximized;
-                        WindowStyle = WindowStyle.None;
-                    }
-                    else {
-                        WindowState = WindowState.Normal;
-                        WindowStyle = WindowStyle.SingleBorderWindow;
-                    }
-                    e.Handled = true;
-                    break;
-
-                case Key.R:
-                    RepeatButton_Click(null, null);
-                    e.Handled = true;
-                    break;
-
-                case Key.H:
-                    ShuffleButton_Click(null, null);
-                    e.Handled = true;
-                    break;
-            }
-        }
-
-        private void HandleLeftKey() {
-            DateTime now = DateTime.Now;
-            if (now - lastLeftKeyPress < doubleClickInterval) {
-                PreviousButton_Click(null, null);
-                lastLeftKeyPress = DateTime.MinValue;
-            }
-            else {
-                SeekBackward(10);
-                lastLeftKeyPress = now;
-            }
-        }
-
-        private void HandleRightKey() {
-            DateTime now = DateTime.Now;
-            if (now - lastRightKeyPress < doubleClickInterval) {
-                NextButton_Click(null, null);
-                lastRightKeyPress = DateTime.MinValue;
-            }
-            else {
-                SeekForward(10);
-                lastRightKeyPress = now;
-            }
-        }
-
-        private void SeekForward(int seconds) {
-            if (mediaPlayer.NaturalDuration.HasTimeSpan) {
-                TimeSpan newPosition = mediaPlayer.Position.Add(TimeSpan.FromSeconds(seconds));
-                TimeSpan maxPosition = mediaPlayer.NaturalDuration.TimeSpan;
-
-                if (newPosition > maxPosition)
-                    newPosition = maxPosition;
-
-                mediaPlayer.Position = newPosition;
-                ProgressSlider.Value = newPosition.TotalSeconds;
-            }
-        }
-
-        private void SeekBackward(int seconds) {
-            if (mediaPlayer.NaturalDuration.HasTimeSpan) {
-                TimeSpan newPosition = mediaPlayer.Position.Subtract(TimeSpan.FromSeconds(seconds));
-                TimeSpan minPosition = TimeSpan.Zero;
-
-                if (newPosition < minPosition)
-                    newPosition = minPosition;
-
-                mediaPlayer.Position = newPosition;
-                ProgressSlider.Value = newPosition.TotalSeconds;
-            }
-        }
-
-        #endregion
-
-        #region Drag & Drop Methods
-
-        private void MainWindow_DragEnter(object sender, DragEventArgs e) {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                if (HasAudioFiles(files)) {
-                    e.Effects = DragDropEffects.Copy;
-                    ShowDragOverlay();
-                }
-                else {
-                    e.Effects = DragDropEffects.None;
-                }
-            }
-            else {
-                e.Effects = DragDropEffects.None;
-            }
-        }
-
-        private void MainWindow_DragOver(object sender, DragEventArgs e) {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+        private void MainWindow_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
                 e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
             }
-            else {
+            else
+            {
                 e.Effects = DragDropEffects.None;
             }
         }
 
-        private void MainWindow_DragLeave(object sender, DragEventArgs e) {
-            HideDragOverlay();
+        private void MainWindow_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
         }
 
-        private void MainWindow_Drop(object sender, DragEventArgs e) {
-            HideDragOverlay();
+        private void MainWindow_DragLeave(object sender, DragEventArgs e)
+        {
+            DragOverlay.Visibility = Visibility.Collapsed;
+        }
 
-            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+        private void MainWindow_Drop(object sender, DragEventArgs e)
+        {
+            DragOverlay.Visibility = Visibility.Collapsed;
+
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
                 AddAudioFiles(files);
             }
         }
 
-        private void PlaylistBox_DragEnter(object sender, DragEventArgs e) {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
-
-                if (HasAudioFiles(files)) {
-                    PlaylistBox.Background = new SolidColorBrush(Color.FromArgb(0x44, 0x00, 0xA0, 0xFF));
-                }
+        private void PlaylistBox_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                e.Effects = HasAudioFiles(files) ? DragDropEffects.Move : DragDropEffects.None;
             }
-            else {
+            else
+            {
                 e.Effects = DragDropEffects.None;
             }
         }
 
-        private void PlaylistBox_DragOver(object sender, DragEventArgs e) {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                e.Effects = HasAudioFiles(files) ? DragDropEffects.Copy : DragDropEffects.None;
+        private void PlaylistBox_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                e.Effects = HasAudioFiles(files) ? DragDropEffects.Move : DragDropEffects.None;
             }
-            else {
+            else
+            {
                 e.Effects = DragDropEffects.None;
             }
         }
 
-        private void PlaylistBox_DragLeave(object sender, DragEventArgs e) {
-            PlaylistBox.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+        private void PlaylistBox_DragLeave(object sender, DragEventArgs e)
+        {
+            // Добавить визуальные эффекты
         }
 
-        private void PlaylistBox_Drop(object sender, DragEventArgs e) {
-            PlaylistBox.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
-
-            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+        private void PlaylistBox_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
                 AddAudioFiles(files);
             }
         }
@@ -618,373 +708,197 @@ namespace AudioPlayer {
 
         #region Drag & Drop Helper Methods
 
-        private bool HasAudioFiles(string[] files) {
+        private bool HasAudioFiles(string[] files)
+        {
             return files.Any(file =>
             {
-                string extension = System.IO.Path.GetExtension(file).ToLower();
+                var extension = Path.GetExtension(file).ToLower();
                 return supportedFormats.Contains(extension);
             });
         }
 
-        private void AddAudioFiles(string[] files) {
-            int addedCount = 0;
+        private void AddAudioFiles(string[] files)
+        {
+            var audioFiles = new List<string>();
 
-            foreach (string file in files) {
-                if (File.Exists(file)) {
-                    string extension = System.IO.Path.GetExtension(file).ToLower();
-                    if (supportedFormats.Contains(extension)) {
-                        if (!playlist.Contains(file)) {
-                            playlist.Add(file);
-                            PlaylistBox.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
-                            addedCount++;
-                        }
-                    }
-                }
-                else if (Directory.Exists(file)) {
-                    AddAudioFilesFromDirectory(file, ref addedCount);
-                }
-            }
-
-            if (addedCount > 0) {
-                if (currentTrackIndex == -1 && playlist.Count > 0) {
-                    currentTrackIndex = 0;
-                }
-
-                MarkPlaylistAsModified();
-                ShowNotification($"Добавлено треков: {addedCount}");
-
-                if (isShuffleEnabled) {
-                    GenerateShuffleOrder();
-                }
-            }
-        }
-
-        private void AddAudioFilesFromDirectory(string directoryPath, ref int addedCount) {
-            try {
-                foreach (string extension in supportedFormats) {
-                    string[] files = Directory.GetFiles(directoryPath, $"*{extension}",
-                        SearchOption.AllDirectories);
-
-                    foreach (string file in files) {
-                        if (!playlist.Contains(file)) {
-                            playlist.Add(file);
-                            PlaylistBox.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
-                            addedCount++;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex) {
-                MessageBox.Show($"Ошибка при добавлении файлов из папки: {ex.Message}",
-                       "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
-
-        private void ShowDragOverlay() {
-            DragOverlay.Visibility = Visibility.Visible;
-        }
-
-        private void HideDragOverlay() {
-            DragOverlay.Visibility = Visibility.Collapsed;
-        }
-
-        private void ShowNotification(string message) {
-            string originalTitle = Title;
-            Title = $"✅ {message}";
-
-            var notificationTimer = new DispatcherTimer();
-            notificationTimer.Interval = TimeSpan.FromSeconds(2);
-            notificationTimer.Tick += (s, e) =>
+            foreach (var file in files)
             {
-                Title = originalTitle;
-                notificationTimer.Stop();
-            };
-            notificationTimer.Start();
-        }
-
-        #endregion
-
-        #region Playlist Management Methods
-
-        private void SavePlaylistButton_Click(object sender, RoutedEventArgs e) {
-            try {
-                var dialog = new SaveFileDialog {
-                    Title = "Сохранить плейлист",
-                    Filter = "Плейлисты (*.json)|*.json",
-                    DefaultExt = "json",
-                    InitialDirectory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AudioPlayer", "Playlists")
-                };
-
-                if (dialog.ShowDialog() == true) {
-                    var playlistData = CreatePlaylistData();
-                    string fileName = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                    playlistData.Name = fileName;
-
-                    PlaylistManager.SavePlaylist(playlistData, dialog.FileName);
-
-                    currentPlaylistName = fileName;
-                    isPlaylistModified = false;
-                    UpdatePlaylistTitle();
-                    ShowNotification($"Плейлист '{fileName}' сохранен");
-                }
-            }
-            catch (Exception ex) {
-                MessageBox.Show($"Ошибка сохранения: {ex.Message}", "Ошибка",
-                               MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void LoadPlaylistButton_Click(object sender, RoutedEventArgs e) {
-            try {
-                var dialog = new OpenFileDialog {
-                    Title = "Загрузить плейлист",
-                    Filter = "Плейлисты (*.json)|*.json",
-                    InitialDirectory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AudioPlayer", "Playlists")
-                };
-
-                if (dialog.ShowDialog() == true) {
-                    var playlistData = PlaylistManager.LoadPlaylist(dialog.FileName);
-                    if (playlistData != null) {
-                        LoadPlaylistData(playlistData);
-                        currentPlaylistName = playlistData.Name ?? System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        isPlaylistModified = false;
-                        UpdatePlaylistTitle();
-                        ShowNotification($"Плейлист '{currentPlaylistName}' загружен");
+                if (File.Exists(file))
+                {
+                    var extension = Path.GetExtension(file).ToLower();
+                    if (supportedFormats.Contains(extension))
+                    {
+                        audioFiles.Add(file);
                     }
                 }
-            }
-            catch (Exception ex) {
-                MessageBox.Show($"Ошибка загрузки: {ex.Message}", "Ошибка",
-                               MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void NewPlaylistButton_Click(object sender, RoutedEventArgs e) {
-            if (isPlaylistModified) {
-                var result = MessageBox.Show(
-                    "Текущий плейлист был изменен. Сохранить изменения?",
-                    "Несохраненные изменения",
-                    MessageBoxButton.YesNoCancel,
-                    MessageBoxImage.Question);
-
-                if (result == MessageBoxResult.Yes) {
-                    SavePlaylistButton_Click(sender, e);
-                }
-                else if (result == MessageBoxResult.Cancel) {
-                    return;
+                else if (Directory.Exists(file))
+                {
+                    AddAudioFilesFromDirectory(file, audioFiles);
                 }
             }
 
-            StopPlayback();
-
-            playlist.Clear();
-            PlaylistBox.Items.Clear();
-            if (shuffleOrder != null)
-                shuffleOrder.Clear();
-
-            currentTrackIndex = -1;
-            currentPlaylistName = "Новый плейлист";
-            isPlaylistModified = false;
-
-            UpdatePlaylistTitle();
-            ShowNotification("Создан новый плейлист");
+            if (audioFiles.Count > 0)
+            {
+                playlistService.AddTracks(audioFiles);
+            }
         }
 
-        private void ClearPlaylistButton_Click(object sender, RoutedEventArgs e) {
-            if (playlist.Count == 0) return;
-
-            var result = MessageBox.Show(
-                "Вы уверены, что хотите очистить плейлист?",
-                "Подтверждение",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes) {
-                StopPlayback();
-
-                playlist.Clear();
-                PlaylistBox.Items.Clear();
-                if (shuffleOrder != null)
-                    shuffleOrder.Clear();
-                currentTrackIndex = -1;
-
-                MarkPlaylistAsModified();
-                ShowNotification("Плейлист очищен");
+        private void AddAudioFilesFromDirectory(string directoryPath, List<string> audioFiles)
+        {
+            try
+            {
+                foreach (var extension in supportedFormats)
+                {
+                    var files = Directory.GetFiles(directoryPath, $"*{extension}", SearchOption.AllDirectories);
+                    audioFiles.AddRange(files);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при добавлении файлов из папки: {ex.Message}",
+                                "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
         #endregion
 
-        #region Playlist Helper Methods
+        #region Auto-save methods
 
-        private PlaylistData CreatePlaylistData() {
-            var playlistData = new PlaylistData {
-                Name = currentPlaylistName,
-                CurrentTrackIndex = currentTrackIndex,
-                PlaybackMode = GetCurrentPlaybackMode(),
-                IsShuffleEnabled = isShuffleEnabled,
-                Volume = VolumeSlider.Value
-            };
-
-            foreach (string filePath in playlist) {
-                playlistData.Items.Add(new PlaylistItem(filePath));
-            }
-
-            return playlistData;
-        }
-
-        private void LoadPlaylistData(PlaylistData playlistData) {
-            StopPlayback();
-
-            playlist.Clear();
-            PlaylistBox.Items.Clear();
-            if (shuffleOrder != null)
-                shuffleOrder.Clear();
-
-            foreach (var item in playlistData.Items) {
-                if (File.Exists(item.FilePath)) {
-                    playlist.Add(item.FilePath);
-                    PlaylistBox.Items.Add(item.DisplayName);
-                }
-            }
-
-            currentTrackIndex = playlistData.CurrentTrackIndex;
-            if (currentTrackIndex >= playlist.Count) currentTrackIndex = -1;
-
-            VolumeSlider.Value = playlistData.Volume;
-
-            switch (playlistData.PlaybackMode) {
-                case "RepeatOne":
-                    currentPlaybackMode = PlaybackMode.RepeatOne;
-                    break;
-                case "RepeatAll":
-                    currentPlaybackMode = PlaybackMode.RepeatAll;
-                    break;
-                default:
-                    currentPlaybackMode = PlaybackMode.Normal;
-                    break;
-            }
-
-            isShuffleEnabled = playlistData.IsShuffleEnabled;
-
-            UpdateModeButtons();
-
-            if (isShuffleEnabled && playlist.Count > 0) {
-                GenerateShuffleOrder();
-            }
-
-            if (currentTrackIndex >= 0 && currentTrackIndex < PlaylistBox.Items.Count) {
-                PlaylistBox.SelectedIndex = currentTrackIndex;
-            }
-        }
-
-        private string GetCurrentPlaybackMode() {
-            switch (currentPlaybackMode) {
-                case PlaybackMode.RepeatOne: return "RepeatOne";
-                case PlaybackMode.RepeatAll: return "RepeatAll";
-                default: return "Normal";
-            }
-        }
-
-        private void UpdatePlaylistTitle() {
-            string title = currentPlaylistName;
-            if (isPlaylistModified) {
-                title += " *";
-            }
-            PlaylistNameText.Text = title;
-        }
-
-        private void MarkPlaylistAsModified() {
-            if (!isPlaylistModified) {
-                isPlaylistModified = true;
-                UpdatePlaylistTitle();
-            }
-        }
-
-        private void UpdateModeButtons() {
-            // Обновляем кнопку Shuffle
-            if (isShuffleEnabled) {
-                ShuffleButton.Style = (Style)FindResource("ActiveModeButtonStyle");
-                ShuffleButton.ToolTip = "Случайное воспроизведение включено";
-            }
-            else {
-                ShuffleButton.Style = (Style)FindResource("ModeButtonStyle");
-                ShuffleButton.ToolTip = "Случайное воспроизведение";
-            }
-
-            // Обновляем кнопку Repeat
-            switch (currentPlaybackMode) {
-                case PlaybackMode.RepeatOne:
-                    RepeatButton.Content = "🔂";
-                    RepeatButton.Style = (Style)FindResource("ActiveModeButtonStyle");
-                    RepeatButton.ToolTip = "Повтор трека";
-                    break;
-                case PlaybackMode.RepeatAll:
-                    RepeatButton.Content = "🔁";
-                    RepeatButton.Style = (Style)FindResource("ActiveModeButtonStyle");
-                    RepeatButton.ToolTip = "Повтор плейлиста";
-                    break;
-                default:
-                    RepeatButton.Content = "🔁";
-                    RepeatButton.Style = (Style)FindResource("ModeButtonStyle");
-                    RepeatButton.ToolTip = "Режим повтора";
-                    break;
-            }
-        }
-
-        #endregion
-
-        #region Auto-save Methods
-
-        private void LoadAutoSavedPlaylist() {
-            try {
-                if (PlaylistManager.AutoSaveExists()) {
+        private void LoadAutoSavedPlaylist()
+        {
+            try
+            {
+                if (PlaylistManager.AutoSaveExists())
+                {
                     var autoSaved = PlaylistManager.LoadPlaylist();
-                    if (autoSaved != null && autoSaved.Items.Count > 0) {
+                    if (autoSaved != null && autoSaved.Items.Count > 0)
+                    {
                         LoadPlaylistData(autoSaved);
-                        currentPlaylistName = "Автосохранение";
-                        isPlaylistModified = false;
+                        
+                        if (!string.IsNullOrEmpty(autoSaved.Name) && autoSaved.Name != "AutoSave")
+                        {
+                            currentPlaylistName = autoSaved.Name;
+                        }
+                        
+                        isPlaylistModified  = false;
                         UpdatePlaylistTitle();
                     }
                 }
             }
-            catch (Exception ex) {
-                // Игнорируем ошибки автозагрузки
+            catch (Exception ex)
+            {
                 System.Diagnostics.Debug.WriteLine($"Ошибка автозагрузки: {ex.Message}");
             }
         }
 
-        private void StartAutoSaveTimer() {
+        private void StartAutoSaveTimer()
+        {
             var autoSaveTimer = new DispatcherTimer();
-            autoSaveTimer.Interval = autoSaveInterval;
-            autoSaveTimer.Tick += (s, e) => AutoSavePlaylist();
+            autoSaveTimer.Interval =  autoSaveInterval;
+            autoSaveTimer.Tick     += (sender, e) => AutoSavePlaylist();
             autoSaveTimer.Start();
         }
 
-        private void AutoSavePlaylist() {
-            try {
-                if (playlist.Count > 0 && (isPlaylistModified || DateTime.Now - lastAutoSave > autoSaveInterval)) {
+        private void AutoSavePlaylist()
+        {
+            try
+            {
+                if (playlistService.Count > 0 && (isPlaylistModified || DateTime.Now - lastAutosave > autoSaveInterval))
+                {
                     var playlistData = CreatePlaylistData();
                     playlistData.Name = "AutoSave";
                     PlaylistManager.SavePlaylist(playlistData);
-                    lastAutoSave = DateTime.Now;
+                    lastAutosave = DateTime.Now;
                 }
             }
-            catch {
-                // Игнорируем ошибки автосохранения
+            catch
+            {
+                // Игнорируем ошибки автозагрузки
             }
         }
 
         #endregion
 
-        private string FormatTime(TimeSpan timeSpan) {
-            if (timeSpan.TotalHours >= 1) {
-                return $"{(int)timeSpan.TotalHours:D1}:{timeSpan.Minutes:D2}:{timeSpan.Seconds:D2}";
-            }
-            else {
-                return $"{timeSpan.Minutes:D2}:{timeSpan.Seconds:D2}";
+        #region ContextMenu Handlers
+
+        private void RemoveTrack_Click(object sender, RoutedEventArgs e)
+        {
+            if (PlaylistBox.SelectedIndex >= 0)
+            {
+                var selectedIndex = PlaylistBox.SelectedIndex;
+                var trackName     = Path.GetFileNameWithoutExtension(playlistService.Playlist[selectedIndex]);
+
+                var result = MessageBox.Show(
+                    $"Удалить трек '{trackName}' из плейлиста?",
+                    "Подтверждение удаления",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    var wasCurrentTrack = selectedIndex == playlistService.CurrentTrackIndex;
+                    playlistService.RemoveTrack(selectedIndex);
+
+                    if (wasCurrentTrack)
+                    {
+                        audioService.Stop();
+                    }
+                }
             }
         }
 
+        private void ShowInExplorer_Click(object sender, RoutedEventArgs e)
+        {
+            if (PlaylistBox.SelectedIndex >= 0)
+            {
+                var filePath = playlistService.Playlist[PlaylistBox.SelectedIndex];
+
+                if (File.Exists(filePath))
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Не удалось открыть проводник: {ex.Message}",
+                                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("Файл не найден.", "Ошибка",
+                                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+
+        private void TrackProperties_Click(object sender, RoutedEventArgs e)
+        {
+            if (PlaylistBox.SelectedIndex >= 0)
+            {
+                var filePath = playlistService.Playlist[PlaylistBox.SelectedIndex];
+
+                if (File.Exists(filePath))
+                {
+                    var fileInfo = new FileInfo(filePath);
+                    var info = $"Файл: {fileInfo.Name}\n"                            +
+                               $"Путь: {fileInfo.DirectoryName}\n"                   +
+                               $"Размер: {fileInfo.Length / 1024 / 1024:F1} МБ\n"    +
+                               $"Создан: {fileInfo.CreationTime:dd.MM.yyyy HH:mm}\n" +
+                               $"Изменен: {fileInfo.LastWriteTime:dd.MM.yyyy HH:mm}";
+
+                    MessageBox.Show(info, "Свойства трека",
+                                    MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Файл не найден.", "Ошибка",
+                                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+
+        #endregion
     }
 }

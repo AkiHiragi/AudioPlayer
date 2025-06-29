@@ -124,12 +124,22 @@
         <!-- Плейлист с поддержкой Drag & Drop -->
         <ListBox x:Name="PlaylistBox" Grid.Row="2" Margin="0,0,0,10"
                  Background="#FF2A2A2A" Foreground="White" BorderBrush="#FF404040"
-                 SelectionChanged="PlaylistBox_SelectionChanged"
+                 MouseDoubleClick="PlaylistBox_MouseDoubleClick"
                  AllowDrop="True"
                  Drop="PlaylistBox_Drop"
                  DragEnter="PlaylistBox_DragEnter"
                  DragOver="PlaylistBox_DragOver"
                  DragLeave="PlaylistBox_DragLeave">
+            
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="🗑️ Удалить трек" Click="RemoveTrack_Click"/>
+                    <MenuItem Header="📁 Показать в проводнике" Click="ShowInExplorer_Click"/>
+                    <Separator />
+                    <MenuItem Header="ℹ️ Свойства" Click="TrackProperties_Click"/>
+                </ContextMenu>
+            </ListBox.ContextMenu>
+            
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Grid>
