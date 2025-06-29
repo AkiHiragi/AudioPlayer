@@ -1,4 +1,7 @@
+using System;
+using MaterialDesignThemes.Wpf;
 using System.Windows;
+using System.Windows.Media;
 using System.IO;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -20,6 +23,7 @@ namespace AudioPlayer
         private DragDropService      dragDropService;
         private ContextMenuService   contextMenuService;
         private NotificationService  notificationService;
+        private ThemeService         themeService;
 
         // UI состояние
         private bool            isUserDragging = false;
@@ -50,6 +54,8 @@ namespace AudioPlayer
             dragDropService      = new DragDropService(playlistService);
             contextMenuService   = new ContextMenuService(playlistService, audioService);
             notificationService  = new NotificationService();
+
+            themeService = App.ThemeService;
 
             CurrentTime.Text = "00:00";
             TotalTime.Text   = "00:00";
@@ -118,7 +124,12 @@ namespace AudioPlayer
 
         private void OnPlaybackStateChanged(object? sender, bool isPlaying)
         {
-            PlayPauseButton.Content        = isPlaying ? "⏸" : "▶";
+            if (PlayPauseButton.Content is PackIcon playPauseIcon)
+            {
+                playPauseIcon.Kind = isPlaying ? PackIconKind.Pause : PackIconKind.Play;
+            }
+    
+            PlayPauseButton.ToolTip        = isPlaying ? "Пауза" : "Воспроизведение";
             visualizationService.IsEnabled = isPlaying;
         }
 
@@ -317,6 +328,23 @@ namespace AudioPlayer
         private void NewPlaylistButton_Click(object   sender, RoutedEventArgs e) => playlistUIService.NewPlaylist();
         private void ClearPlaylistButton_Click(object sender, RoutedEventArgs e) => playlistUIService.ClearPlaylist();
 
+        private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            themeService.ToggleTheme();
+
+            var themeIcon = ThemeIcon;
+            if (themeService.IsDarkTheme)
+            {
+                themeIcon.Kind            = PackIconKind.WeatherNight;
+                ThemeToggleButton.ToolTip = "Переключить на светлую тему";
+            }
+            else
+            {
+                themeIcon.Kind            = PackIconKind.WeatherSunny;
+                ThemeToggleButton.ToolTip = "Переключить на темную тему";
+            }
+        }
+
         #endregion
 
         #region UI Element Handlers
@@ -483,38 +511,40 @@ namespace AudioPlayer
 
         private void UpdateModeButtons()
         {
+            var activeColor = (Color)ColorConverter.ConvertFromString("#4CAF50");
+            var normalColor = Colors.Gray;
+
             // Обновляем кнопку Shuffle
             if (playlistService.IsShuffleEnabled)
             {
-                ShuffleButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
-                ShuffleButton.ToolTip = "Случайное воспроизведение включено";
+                ShuffleButton.Foreground = new SolidColorBrush(activeColor);
+                ShuffleButton.ToolTip    = "Случайное воспроизведение включено";
             }
             else
             {
-                ShuffleButton.Style   = (Style)FindResource("ModeButtonStyle");
-                ShuffleButton.ToolTip = "Случайное воспроизведение";
+                ShuffleButton.Foreground = new SolidColorBrush(normalColor);
+                ShuffleButton.ToolTip    = "Случайное воспроизведение";
             }
 
             // Обновляем кнопку Repeat
             switch (playlistService.PlaybackMode)
             {
                 case PlaybackMode.RepeatOne:
-                    RepeatButton.Content = "🔂";
-                    RepeatButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
-                    RepeatButton.ToolTip = "Повтор трека";
+                    RepeatButton.Foreground = new SolidColorBrush(activeColor);
+                    RepeatButton.ToolTip    = "Повтор трека";
                     break;
                 case PlaybackMode.RepeatAll:
-                    RepeatButton.Content = "🔁";
-                    RepeatButton.Style   = (Style)FindResource("ActiveModeButtonStyle");
-                    RepeatButton.ToolTip = "Повтор плейлиста";
+                    RepeatButton.Foreground = new SolidColorBrush(activeColor);
+                    RepeatButton.ToolTip    = "Повтор плейлиста";
                     break;
                 default:
-                    RepeatButton.Content = "🔁";
-                    RepeatButton.Style   = (Style)FindResource("ModeButtonStyle");
-                    RepeatButton.ToolTip = "Режим повтора";
+                    RepeatButton.Foreground = new SolidColorBrush(normalColor);
+                    RepeatButton.ToolTip    = "Режим повтора";
                     break;
             }
         }
+
+        #endregion
 
         protected override void OnClosed(EventArgs e)
         {
@@ -526,7 +556,5 @@ namespace AudioPlayer
 
             base.OnClosed(e);
         }
-
-        #endregion
     }
 }
