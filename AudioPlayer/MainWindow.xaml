@@ -24,7 +24,7 @@
         </Grid.RowDefinitions>
 
         <!-- Меню плейлистов -->
-        <materialDesign:Card Grid.Row="0" Margin="0,0,0,16" Padding="16">
+        <materialDesign:Card Grid.Row="0" x:Name="MenuCard" Margin="0,0,0,16" Padding="16">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -88,17 +88,25 @@
                             Margin="8,0,0,0">
                         <materialDesign:PackIcon x:Name="ThemeIcon" Kind="WeatherNight" />
                     </Button>
+
+                    <Button x:Name="MinimizeToTrayButton"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Click="MinimizeToTrayButton_Click"
+                            ToolTip="Свернуть в трей"
+                            Margin="4,0,0,0">
+                        <materialDesign:PackIcon Kind="TrayArrowDown" />
+                    </Button>
                 </StackPanel>
             </Grid>
         </materialDesign:Card>
 
         <!-- Визуализация -->
-        <materialDesign:Card Grid.Row="1" Margin="0,0,0,16">
+        <materialDesign:Card Grid.Row="1" x:Name="VisualizationCard" Margin="0,0,0,16">
             <Canvas x:Name="VisualizationCanvas" Background="{DynamicResource MaterialDesignCardBackground}" />
         </materialDesign:Card>
 
         <!-- Плейлист -->
-        <materialDesign:Card Grid.Row="2" Margin="0,0,0,16">
+        <materialDesign:Card Grid.Row="2" x:Name="PlaylistCard" Margin="0,0,0,16">
             <ListBox x:Name="PlaylistBox"
                      MouseDoubleClick="PlaylistBox_MouseDoubleClick"
                      AllowDrop="True"
@@ -152,14 +160,14 @@
                 </ListBox.ItemTemplate>
             </ListBox>
         </materialDesign:Card>
-                <!-- Прогресс бар -->
+        <!-- Прогресс бар -->
         <materialDesign:Card Grid.Row="3" Margin="0,0,0,8" Padding="16">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                
+
                 <!-- Слайдер прогресса -->
                 <Slider x:Name="ProgressSlider" Grid.Row="0"
                         Minimum="0" Maximum="100" Value="0"
@@ -167,20 +175,20 @@
                         PreviewMouseLeftButtonDown="ProgressSlider_PreviewMouseLeftButtonDown"
                         PreviewMouseLeftButtonUp="ProgressSlider_PreviewMouseLeftButtonUp"
                         IsMoveToPointEnabled="True"
-                        Margin="0,0,0,8"/>
-                
+                        Margin="0,0,0,8" />
+
                 <!-- Время -->
                 <Grid Grid.Row="1">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    
-                    <TextBlock x:Name="CurrentTime" Grid.Column="0" Text="00:00" 
-                               VerticalAlignment="Center" FontSize="12"/>
-                    <TextBlock x:Name="TotalTime" Grid.Column="2" Text="00:00" 
-                               VerticalAlignment="Center" FontSize="12"/>
+
+                    <TextBlock x:Name="CurrentTime" Grid.Column="0" Text="00:00"
+                               VerticalAlignment="Center" FontSize="12" />
+                    <TextBlock x:Name="TotalTime" Grid.Column="2" Text="00:00"
+                               VerticalAlignment="Center" FontSize="12" />
                 </Grid>
             </Grid>
         </materialDesign:Card>
@@ -189,70 +197,79 @@
         <materialDesign:Card Grid.Row="4" Margin="0,0,0,8" Padding="16">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                
+
                 <!-- Левая панель - режимы -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
-                    <Button x:Name="RepeatButton" 
+                    <Button x:Name="RepeatButton"
                             Style="{StaticResource MaterialDesignIconButton}"
-                            Click="RepeatButton_Click" 
+                            Click="RepeatButton_Click"
                             ToolTip="Режим повтора">
-                        <materialDesign:PackIcon Kind="Repeat"/>
+                        <materialDesign:PackIcon Kind="Repeat" />
                     </Button>
-                    <Button x:Name="ShuffleButton" 
+                    <Button x:Name="ShuffleButton"
                             Style="{StaticResource MaterialDesignIconButton}"
-                            Click="ShuffleButton_Click" 
+                            Click="ShuffleButton_Click"
                             ToolTip="Случайное воспроизведение">
-                        <materialDesign:PackIcon Kind="Shuffle"/>
+                        <materialDesign:PackIcon Kind="Shuffle" />
                     </Button>
                 </StackPanel>
-                
+
                 <!-- Центральная панель - управление -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
-                    <Button x:Name="PreviousButton" 
+                    <Button x:Name="PreviousButton"
                             Style="{StaticResource MaterialDesignIconButton}"
-                            Click="PreviousButton_Click" 
+                            Click="PreviousButton_Click"
                             ToolTip="Предыдущий трек">
-                        <materialDesign:PackIcon Kind="SkipPrevious"/>
+                        <materialDesign:PackIcon Kind="SkipPrevious" />
                     </Button>
-                    <Button x:Name="PlayPauseButton" 
+                    <Button x:Name="PlayPauseButton"
                             Style="{StaticResource MaterialDesignFloatingActionButton}"
-                            Click="PlayPauseButton_Click" 
+                            Click="PlayPauseButton_Click"
                             ToolTip="Воспроизведение/Пауза"
                             Margin="8,0">
-                        <materialDesign:PackIcon Kind="Play" Width="24" Height="24"/>
+                        <materialDesign:PackIcon Kind="Play" Width="24" Height="24" />
                     </Button>
-                    <Button x:Name="StopButton" 
+                    <Button x:Name="StopButton"
                             Style="{StaticResource MaterialDesignIconButton}"
-                            Click="StopButton_Click" 
+                            Click="StopButton_Click"
                             ToolTip="Остановить">
-                        <materialDesign:PackIcon Kind="Stop"/>
+                        <materialDesign:PackIcon Kind="Stop" />
                     </Button>
-                    <Button x:Name="NextButton" 
+                    <Button x:Name="NextButton"
                             Style="{StaticResource MaterialDesignIconButton}"
-                            Click="NextButton_Click" 
+                            Click="NextButton_Click"
                             ToolTip="Следующий трек">
-                        <materialDesign:PackIcon Kind="SkipNext"/>
+                        <materialDesign:PackIcon Kind="SkipNext" />
                     </Button>
                 </StackPanel>
-                
+
                 <!-- Правая панель - громкость -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="OpenFileButton" 
+                    <Button x:Name="OpenFileButton"
                             Style="{StaticResource MaterialDesignIconButton}"
-                            Click="OpenFileButton_Click" 
+                            Click="OpenFileButton_Click"
                             ToolTip="Открыть файлы">
-                        <materialDesign:PackIcon Kind="FolderMusic"/>
+                        <materialDesign:PackIcon Kind="FolderMusic" />
                     </Button>
-                    <materialDesign:PackIcon Kind="VolumeHigh" VerticalAlignment="Center" Margin="8,0,4,0"/>
-                    <Slider x:Name="VolumeSlider" 
-                            Width="100" 
+
+                    <Button x:Name="CompactModeButton"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Click="CompactModeButton_Click"
+                            ToolTip="Компактный режим"
+                            Margin="4,0">
+                        <materialDesign:PackIcon Kind="Resize" />
+                    </Button>
+
+                    <materialDesign:PackIcon Kind="VolumeHigh" VerticalAlignment="Center" Margin="8,0,4,0" />
+                    <Slider x:Name="VolumeSlider"
+                            Width="100"
                             Minimum="0" Maximum="100" Value="50"
                             ValueChanged="VolumeSlider_ValueChanged"
-                            VerticalAlignment="Center"/>
+                            VerticalAlignment="Center" />
                 </StackPanel>
             </Grid>
         </materialDesign:Card>
@@ -271,17 +288,81 @@
                     VerticalAlignment="Center"
                     Padding="32">
                 <StackPanel>
-                    <materialDesign:PackIcon Kind="MusicBoxMultiple" 
-                                           Width="48" Height="48"
-                                           HorizontalAlignment="Center"
-                                           Foreground="White"/>
+                    <materialDesign:PackIcon Kind="MusicBoxMultiple"
+                                             Width="48" Height="48"
+                                             HorizontalAlignment="Center"
+                                             Foreground="White" />
                     <TextBlock Text="Перетащите аудио файлы сюда"
                                FontSize="18"
                                Foreground="White"
                                HorizontalAlignment="Center"
-                               Margin="0,8,0,0"/>
+                               Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
         </Border>
+
+        <!-- Компактный режим-->
+        <materialDesign:Card x:Name="CompactModePanel" Grid.RowSpan="6"
+                             Visibility="Collapsed"
+                             Margin="0" Padding="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Название трека -->
+                <TextBlock x:Name="CompactTrackName" Grid.Column="0"
+                           Text="Нет трека"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"
+                           MaxWidth="150"
+                           TextTrimming="CharacterEllipsis" />
+
+                <!-- Прогресс -->
+                <Slider x:Name="CompactProgressSlider" Grid.Column="1"
+                        Minimum="0" Maximum="100" Value="0"
+                        VerticalAlignment="Center"
+                        Margin="8,0" />
+
+                <!-- Кнопки управления -->
+                <Button x:Name="CompactPreviousButton" Grid.Column="2"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Click="PreviousButton_Click" Width="32" Height="32">
+                    <materialDesign:PackIcon Kind="SkipPrevious" Width="16" Height="16" />
+                </Button>
+
+                <Button x:Name="CompactPlayPauseButton" Grid.Column="3"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Click="PlayPauseButton_Click" Width="32" Height="32">
+                    <materialDesign:PackIcon Kind="Play" Width="16" Height="16" />
+                </Button>
+
+                <Button x:Name="CompactNextButton" Grid.Column="4"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Click="NextButton_Click" Width="32" Height="32">
+                    <materialDesign:PackIcon Kind="SkipNext" Width="16" Height="16" />
+                </Button>
+
+                <!-- Громкость -->
+                <Slider x:Name="CompactVolumeSlider" Grid.Column="5"
+                        Width="60" Minimum="0" Maximum="100" Value="50"
+                        VerticalAlignment="Center"
+                        Margin="8,0" />
+
+                <!-- Кнопка развернуть -->
+                <Button x:Name="CompactExpandButton" Grid.Column="6"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Click="CompactModeButton_Click" Width="32" Height="32"
+                        ToolTip="Развернуть окно">
+                    <materialDesign:PackIcon Kind="Fullscreen" Width="16" Height="16" />
+                </Button>
+            </Grid>
+        </materialDesign:Card>
     </Grid>
 </Window>

@@ -3,6 +3,7 @@ using MaterialDesignThemes.Wpf;
 using System.Windows;
 using System.Windows.Media;
 using System.IO;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using AudioPlayer.Models;
@@ -24,6 +25,8 @@ namespace AudioPlayer
         private ContextMenuService   contextMenuService;
         private NotificationService  notificationService;
         private ThemeService         themeService;
+        private TrayService          trayService;
+        private CompactModeService   compactModeService;
 
         // UI состояние
         private bool            isUserDragging = false;
@@ -56,6 +59,9 @@ namespace AudioPlayer
             notificationService  = new NotificationService();
 
             themeService = App.ThemeService;
+
+            trayService        = new TrayService(this);
+            compactModeService = new CompactModeService(this);
 
             CurrentTime.Text = "00:00";
             TotalTime.Text   = "00:00";
@@ -102,6 +108,17 @@ namespace AudioPlayer
             keyboardService.ShuffleToggleRequested    += (s, e) => ShuffleButton_Click(null, null);
             keyboardService.OpenFileRequested         += (s, e) => OpenFileButton_Click(null, null);
             keyboardService.FullscreenToggleRequested += OnFullscreenToggleRequested;
+
+            // TrayService Events
+            trayService.ShowRequested          += (s, e) => ShowFromTray();
+            trayService.HideRequested          += (s, e) => HideToTray();
+            trayService.ExitRequested          += (s, e) => Application.Current.Shutdown();
+            trayService.PlayPauseRequested     += (s, e) => PlayPauseButton_Click(null, null);
+            trayService.NextTrackRequested     += (s, e) => NextButton_Click(null, null);
+            trayService.PreviousTrackRequested += (s, e) => PreviousButton_Click(null, null);
+
+            // CompactModeService Events
+            compactModeService.CompactModeChanged += OnCompactModeChanged;
         }
 
         #region Event Handlers
@@ -113,6 +130,11 @@ namespace AudioPlayer
             {
                 ProgressSlider.Value = position.TotalSeconds;
                 CurrentTime.Text     = FormatTime(position);
+                
+                if (FindName("CompactProgressSlider") is Slider compactProgress)
+                {
+                    compactProgress.Value = position.TotalSeconds;
+                }
             }
         }
 
@@ -120,6 +142,11 @@ namespace AudioPlayer
         {
             ProgressSlider.Maximum = duration.TotalSeconds;
             TotalTime.Text         = FormatTime(duration);
+            
+            if (FindName("CompactProgressSlider") is Slider compactProgress)
+            {
+                compactProgress.Maximum = duration.TotalSeconds;
+            }
         }
 
         private void OnPlaybackStateChanged(object? sender, bool isPlaying)
@@ -128,7 +155,13 @@ namespace AudioPlayer
             {
                 playPauseIcon.Kind = isPlaying ? PackIconKind.Pause : PackIconKind.Play;
             }
-    
+
+            if (FindName("CompactPlayPauseButton") is Button compactButton &&
+                compactButton.Content is PackIcon compactIcon)
+            {
+                compactIcon.Kind = isPlaying ? PackIconKind.Pause : PackIconKind.Play;
+            }
+
             PlayPauseButton.ToolTip        = isPlaying ? "Пауза" : "Воспроизведение";
             visualizationService.IsEnabled = isPlaying;
         }
@@ -250,7 +283,9 @@ namespace AudioPlayer
             {
                 if (playlistService.CurrentTrack != null)
                 {
-                    audioService.LoadTrack(playlistService.CurrentTrack);
+                    if (audioService.Duration == TimeSpan.Zero)
+                        audioService.LoadTrack(playlistService.CurrentTrack);
+
                     audioService.Play();
                 }
                 else if (playlistService.Count > 0)
@@ -344,6 +379,16 @@ namespace AudioPlayer
                 ThemeToggleButton.ToolTip = "Переключить на темную тему";
             }
         }
+
+        private void CompactModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine("CompactModeButton clicked");
+            compactModeService.ToggleCompactMode();
+        }
+
+
+        private void MinimizeToTrayButton_Click(object sender, RoutedEventArgs e) =>
+            HideToTray();
 
         #endregion
 
@@ -546,6 +591,201 @@ namespace AudioPlayer
 
         #endregion
 
+        #region Tray and CompactMode
+
+        private void ShowFromTray()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            trayService.HideTrayIcon();
+        }
+
+        private void HideToTray()
+        {
+            Hide();
+            trayService.ShowTrayIcon();
+            trayService.ShowBalloonTip("Audio Player", "Приложение свернуто в трей");
+        }
+
+        private void OnCompactModeChanged(object? sender, bool isCompact)
+        {
+            var mainGrid     = Content as Grid;
+            var compactPanel = FindName("CompactModePanel") as UIElement;
+
+            if (isCompact)
+            {
+                // Убираем отступы
+                if (mainGrid != null) mainGrid.Margin = new Thickness(4);
+
+                // Скрываем основные элементы
+                var menuCard     = FindName("MenuCard") as UIElement;
+                var vizCard      = FindName("VisualizationCard") as UIElement;
+                var playlistCard = FindName("PlaylistCard") as UIElement;
+
+                if (menuCard     != null) menuCard.Visibility     = Visibility.Collapsed;
+                if (vizCard      != null) vizCard.Visibility      = Visibility.Collapsed;
+                if (playlistCard != null) playlistCard.Visibility = Visibility.Collapsed;
+
+                // Скрываем обычные панели управления
+                foreach (UIElement child in mainGrid.Children)
+                {
+                    int row = Grid.GetRow(child);
+                    if (row == 3 || row == 4) // Прогресс и управление
+                    {
+                        child.Visibility = Visibility.Collapsed;
+                    }
+                }
+
+                // Показываем компактную панель
+                if (compactPanel != null)
+                {
+                    compactPanel.Visibility = Visibility.Visible;
+                    SyncCompactControls();
+                }
+
+                // Обнуляем высоты скрытых строк
+                if (mainGrid != null && mainGrid.RowDefinitions.Count >= 6)
+                {
+                    mainGrid.RowDefinitions[0].Height = new GridLength(0);
+                    mainGrid.RowDefinitions[1].Height = new GridLength(0);
+                    mainGrid.RowDefinitions[2].Height = new GridLength(0);
+                    mainGrid.RowDefinitions[3].Height = new GridLength(0);
+                    mainGrid.RowDefinitions[4].Height = new GridLength(0);
+                }
+            }
+            else
+            {
+                // Возвращаем обычный режим
+                if (mainGrid != null) mainGrid.Margin = new Thickness(16);
+
+                // Показываем основные элементы
+                var menuCard     = FindName("MenuCard") as UIElement;
+                var vizCard      = FindName("VisualizationCard") as UIElement;
+                var playlistCard = FindName("PlaylistCard") as UIElement;
+
+                if (menuCard     != null) menuCard.Visibility     = Visibility.Visible;
+                if (vizCard      != null) vizCard.Visibility      = Visibility.Visible;
+                if (playlistCard != null) playlistCard.Visibility = Visibility.Visible;
+
+                // Показываем обычные панели управления
+                foreach (UIElement child in mainGrid.Children)
+                {
+                    int row = Grid.GetRow(child);
+                    if (row == 3 || row == 4) // Прогресс и управление
+                    {
+                        child.Visibility = Visibility.Visible;
+                    }
+                }
+
+                // Скрываем компактную панель
+                if (compactPanel != null) compactPanel.Visibility = Visibility.Collapsed;
+
+                // Возвращаем исходные высоты строк
+                if (mainGrid != null && mainGrid.RowDefinitions.Count >= 6)
+                {
+                    mainGrid.RowDefinitions[0].Height = GridLength.Auto;
+                    mainGrid.RowDefinitions[1].Height = new GridLength(1, GridUnitType.Star);
+                    mainGrid.RowDefinitions[2].Height = new GridLength(200);
+                    mainGrid.RowDefinitions[3].Height = GridLength.Auto;
+                    mainGrid.RowDefinitions[4].Height = GridLength.Auto;
+                }
+
+                // Возвращаем отступы
+                if (menuCard is FrameworkElement menu) menu.Margin             = new Thickness(0, 0, 0, 16);
+                if (vizCard is FrameworkElement viz) viz.Margin                = new Thickness(0, 0, 0, 16);
+                if (playlistCard is FrameworkElement playlist) playlist.Margin = new Thickness(0, 0, 0, 16);
+            }
+        }
+
+        private void SyncCompactControls()
+        {
+            // Синхронизируем прогресс
+            if (FindName("CompactProgressSlider") is Slider compactProgress)
+            {
+                compactProgress.Value   = ProgressSlider.Value;
+                compactProgress.Maximum = ProgressSlider.Maximum;
+                
+                compactProgress.ValueChanged -= CompactProgressSlider_ValueChanged;
+                compactProgress.ValueChanged += CompactProgressSlider_ValueChanged;
+        
+                compactProgress.PreviewMouseLeftButtonDown -= CompactProgressSlider_PreviewMouseLeftButtonDown;
+                compactProgress.PreviewMouseLeftButtonDown += CompactProgressSlider_PreviewMouseLeftButtonDown;
+        
+                compactProgress.PreviewMouseLeftButtonUp -= CompactProgressSlider_PreviewMouseLeftButtonUp;
+                compactProgress.PreviewMouseLeftButtonUp += CompactProgressSlider_PreviewMouseLeftButtonUp;
+        
+                compactProgress.IsMoveToPointEnabled = true;
+            }
+            
+            if (FindName("CompactVolumeSlider") is Slider compactVolume)
+            {
+                compactVolume.Value        =  VolumeSlider.Value;
+                compactVolume.ValueChanged -= CompactVolumeSlider_ValueChanged;
+                compactVolume.ValueChanged += CompactVolumeSlider_ValueChanged;
+            }
+            
+            if (FindName("CompactPlayPauseButton") is Button compactPlayPause)
+            {
+                if (PlayPauseButton.Content is PackIcon mainIcon && 
+                    compactPlayPause.Content is PackIcon compactIcon)
+                {
+                    compactIcon.Kind = mainIcon.Kind;
+                }
+            }
+            
+            if (FindName("CompactTrackName") is TextBlock trackName)
+            {
+                trackName.Text = playlistService.CurrentTrack != null 
+                                     ? Path.GetFileNameWithoutExtension(playlistService.CurrentTrack)
+                                     : "Нет трека";
+            }
+        }
+
+        protected override void OnStateChanged(EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized)
+                HideToTray();
+            base.OnStateChanged(e);
+        }
+
+        #endregion
+
+        #region Compact Mode Handlers
+
+        private void CompactProgressSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (isUserDragging && sender is Slider compactSlider)
+            {
+                audioService.SetPosition(TimeSpan.FromSeconds(compactSlider.Value));
+            }
+        }
+
+        private void CompactProgressSlider_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            isUserDragging = true;
+        }
+
+        private void CompactProgressSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Slider compactSlider)
+            {
+                isUserDragging = false;
+                audioService.SetPosition(TimeSpan.FromSeconds(compactSlider.Value));
+            }
+        }
+
+        private void CompactVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (sender is Slider compactVolume)
+            {
+                VolumeSlider.Value = compactVolume.Value;
+                audioService?.SetVolume(compactVolume.Value);
+            }
+        }
+
+        #endregion
+        
         protected override void OnClosed(EventArgs e)
         {
             autoSaveTimer?.Stop();
@@ -553,6 +793,8 @@ namespace AudioPlayer
 
             audioService?.Dispose();
             visualizationService?.Dispose();
+
+            trayService?.Dispose();
 
             base.OnClosed(e);
         }
